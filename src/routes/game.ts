@@ -11,22 +11,31 @@ router.post('/create-game', (req, res) => {
   return res.json({ gameId: game.id, code: game.code, hostToken });
 });
 
-router.post('/join-game', (req, res) => {
+router.post('/join-game', async (req, res) => {
   const { code, pseudo } = req.body || {};
   if (!code || !pseudo) return res.status(400).json({ error: 'code and pseudo required' });
   const result = joinGameByCode(code, pseudo);
   if (!result) return res.status(404).json({ error: 'game not found' });
   
-  // Émettre un événement Socket.IO pour notifier tous les joueurs
-  const io = getIO();
-  if (io) {
-    io.to(`game-${result.game.id}`).emit('player-joined', {
-      playerId: result.player.id,
-      playerName: result.player.name,
-    });
-  }
+  console.log(`🎮 ${pseudo} rejoint le jeu ${result.game.id} (code: ${code})`);
   
-  return res.json({ playerId: result.player.id, gameId: result.game.id });
+  // Répondre immédiatement au client
+  res.json({ playerId: result.player.id, gameId: result.game.id });
+  
+  // Attendre un peu que le client rejoigne la room Socket.IO
+  setTimeout(() => {
+    const io = getIO();
+    if (io) {
+      console.log(`📢 Émission de player-joined vers game-${result.game.id}:`, {
+        playerId: result.player.id,
+        playerName: result.player.name,
+      });
+      io.to(`game-${result.game.id}`).emit('player-joined', {
+        playerId: result.player.id,
+        playerName: result.player.name,
+      });
+    }
+  }, 100); // Délai de 100ms pour laisser le client rejoindre la room
 });
 
 router.get('/game/:id', (req, res) => {

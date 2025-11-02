@@ -12,7 +12,7 @@ export function createGame(hostName: string, settings?: Record<string, any>) {
     code,
     hostToken,
     settings: settings || {},
-    players: [{ id: 'host', name: hostName }],
+    players: [{ id: hostToken, name: hostName }], // Utiliser hostToken comme ID du joueur hôte
     status: 'lobby',
     createdAt: Date.now(),
   };
