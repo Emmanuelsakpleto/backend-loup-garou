@@ -1,8 +1,10 @@
 import { Server as HTTPServer } from 'http';
 import { Server as IOServer } from 'socket.io';
 
+let io: IOServer | null = null;
+
 export function initSocket(server: HTTPServer) {
-  const io = new IOServer(server, { cors: { origin: '*' } });
+  io = new IOServer(server, { cors: { origin: '*' } });
 
   io.on('connection', (socket) => {
     socket.on('join-room', ({ gameId }) => {
@@ -10,5 +12,9 @@ export function initSocket(server: HTTPServer) {
     });
   });
 
+  return io;
+}
+
+export function getIO(): IOServer | null {
   return io;
 }

@@ -1,5 +1,6 @@
 import express from 'express';
 import { createGame, joinGameByCode, getGameById } from '../lib/store';
+import { getIO } from '../socket';
 
 const router = express.Router();
 
@@ -15,7 +16,17 @@ router.post('/join-game', (req, res) => {
   if (!code || !pseudo) return res.status(400).json({ error: 'code and pseudo required' });
   const result = joinGameByCode(code, pseudo);
   if (!result) return res.status(404).json({ error: 'game not found' });
-  return res.json({ player: result.player, gameId: result.game.id });
+  
+  // Émettre un événement Socket.IO pour notifier tous les joueurs
+  const io = getIO();
+  if (io) {
+    io.to(`game-${result.game.id}`).emit('player-joined', {
+      playerId: result.player.id,
+      playerName: result.player.name,
+    });
+  }
+  
+  return res.json({ playerId: result.player.id, gameId: result.game.id });
 });
 
 router.get('/game/:id', (req, res) => {
