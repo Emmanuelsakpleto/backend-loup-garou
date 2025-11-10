@@ -1,39 +1,24 @@
 import { randomBytes } from 'crypto';
-import db from './db';
+import pool from './db';
 import { Game, Player } from '../types';
 
-interface GameRow {
+type GameRow = {
   id: string;
   code: string;
   host_token: string;
   status: string;
   settings_json: string | null;
-  created_at: number;
-}
+  created_at: string | number;
+};
 
-interface PlayerRow {
+type PlayerRow = {
   id: string;
   game_id: string;
   name: string;
   role_id: string | null;
-  is_host: number;
-  created_at: number;
-}
-
-const insertGameStmt = db.prepare(
-  'INSERT INTO games (id, code, host_token, status, settings_json, created_at) VALUES (?, ?, ?, ?, ?, ?)' 
-);
-
-const insertPlayerStmt = db.prepare(
-  'INSERT INTO players (id, game_id, name, role_id, is_host, created_at) VALUES (?, ?, ?, ?, ?, ?)' 
-);
-
-const selectGameByIdStmt = db.prepare('SELECT * FROM games WHERE id = ?');
-const selectGameByCodeStmt = db.prepare('SELECT * FROM games WHERE code = ?');
-const selectPlayersByGameStmt = db.prepare('SELECT * FROM players WHERE game_id = ? ORDER BY created_at ASC');
-const updateGameStatusStmt = db.prepare('UPDATE games SET status = ?, settings_json = ? WHERE id = ?');
-const clearPlayerRolesStmt = db.prepare('UPDATE players SET role_id = NULL WHERE game_id = ? AND is_host = 0');
-const updatePlayerRoleStmt = db.prepare('UPDATE players SET role_id = ? WHERE id = ?');
+  is_host: boolean;
+  created_at: string | number;
+};
 
 function deserializeSettings(settingsJson: string | null): Record<string, any> | undefined {
   if (!settingsJson) return undefined;
@@ -63,33 +48,48 @@ function mapPlayerRow(row: PlayerRow): Player {
   };
 }
 
-function mapGameRow(row: GameRow): Game {
-  const playerRows = selectPlayersByGameStmt.all(row.id) as PlayerRow[];
-  const players = playerRows.map(mapPlayerRow);
+function mapGameRow(row: GameRow, players: PlayerRow[]): Game {
+  const mappedPlayers = players.map(mapPlayerRow);
   return {
     id: row.id,
     code: row.code,
     hostToken: row.host_token,
     status: row.status as Game['status'],
     settings: deserializeSettings(row.settings_json),
-    players,
-    createdAt: row.created_at,
+    players: mappedPlayers,
+    createdAt: Number(row.created_at),
   };
 }
 
-function loadGameById(id: string): Game | undefined {
-  const row = selectGameByIdStmt.get(id) as GameRow | undefined;
-  if (!row) return undefined;
-  return mapGameRow(row);
+async function loadGameById(id: string): Promise<Game | undefined> {
+  const client = await pool.connect();
+  try {
+    const g = await client.query('SELECT * FROM games WHERE id = $1', [id]);
+    if (g.rowCount === 0) return undefined;
+    const row = g.rows[0] as GameRow;
+    const pr = await client.query('SELECT * FROM players WHERE game_id = $1 ORDER BY created_at ASC', [id]);
+    const playerRows = pr.rows as PlayerRow[];
+    return mapGameRow(row, playerRows);
+  } finally {
+    client.release();
+  }
 }
 
-function loadGameByCode(code: string): Game | undefined {
-  const row = selectGameByCodeStmt.get(code) as GameRow | undefined;
-  if (!row) return undefined;
-  return mapGameRow(row);
+async function loadGameByCode(code: string): Promise<Game | undefined> {
+  const client = await pool.connect();
+  try {
+    const g = await client.query('SELECT * FROM games WHERE code = $1', [code]);
+    if (g.rowCount === 0) return undefined;
+    const row = g.rows[0] as GameRow;
+    const pr = await client.query('SELECT * FROM players WHERE game_id = $1 ORDER BY created_at ASC', [row.id]);
+    const playerRows = pr.rows as PlayerRow[];
+    return mapGameRow(row, playerRows);
+  } finally {
+    client.release();
+  }
 }
 
-export function createGame(hostName: string, settings?: Record<string, any>) {
+export async function createGame(hostName: string, settings?: Record<string, any>) {
   const id = randomBytes(8).toString('hex');
   const code = randomBytes(3).toString('hex').toUpperCase();
   const hostToken = randomBytes(16).toString('hex');
@@ -97,14 +97,26 @@ export function createGame(hostName: string, settings?: Record<string, any>) {
 
   const settingsJson = serializeSettings(settings || {});
 
-  const createTx = db.transaction(() => {
-    insertGameStmt.run(id, code, hostToken, 'lobby', settingsJson, now);
-    insertPlayerStmt.run(hostToken, id, hostName, null, 1, now);
-  });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'INSERT INTO games (id, code, host_token, status, settings_json, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, code, hostToken, 'lobby', settingsJson, now]
+    );
+    await client.query(
+      'INSERT INTO players (id, game_id, name, role_id, is_host, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [hostToken, id, hostName, null, true, now]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
-  createTx();
-
-  const game = loadGameById(id);
+  const game = await loadGameById(id);
   if (!game) {
     throw new Error('Impossible de charger le jeu après sa création');
   }
@@ -112,12 +124,12 @@ export function createGame(hostName: string, settings?: Record<string, any>) {
   return { game, hostToken };
 }
 
-export function findGameByCode(code: string): Game | undefined {
-  return loadGameByCode(code);
+export async function findGameByCode(code: string): Promise<Game | undefined> {
+  return await loadGameByCode(code);
 }
 
-export function joinGameByCode(code: string, pseudo: string) {
-  const existingGame = loadGameByCode(code);
+export async function joinGameByCode(code: string, pseudo: string) {
+  const existingGame = await loadGameByCode(code);
   if (!existingGame) return null;
 
   const maxPlayers = existingGame.settings?.selectedRoles
@@ -131,9 +143,17 @@ export function joinGameByCode(code: string, pseudo: string) {
   const playerId = `p-${randomBytes(8).toString('hex')}`;
   const now = Date.now();
 
-  insertPlayerStmt.run(playerId, existingGame.id, pseudo, null, 0, now);
+  const client = await pool.connect();
+  try {
+    await client.query(
+      'INSERT INTO players (id, game_id, name, role_id, is_host, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [playerId, existingGame.id, pseudo, null, false, now]
+    );
+  } finally {
+    client.release();
+  }
 
-  const updatedGame = loadGameById(existingGame.id);
+  const updatedGame = await loadGameById(existingGame.id);
   if (!updatedGame) {
     throw new Error('Impossible de charger le jeu après avoir ajouté un joueur');
   }
@@ -146,8 +166,8 @@ export function joinGameByCode(code: string, pseudo: string) {
   return { game: updatedGame, player: newPlayer };
 }
 
-export function getGameById(id: string) {
-  return loadGameById(id);
+export async function getGameById(id: string) {
+  return await loadGameById(id);
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -159,8 +179,8 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-export function assignRolesToGame(gameId: string, selectedRoles: Record<string, number>) {
-  const game = loadGameById(gameId);
+export async function assignRolesToGame(gameId: string, selectedRoles: Record<string, number>) {
+  const game = await loadGameById(gameId);
   if (!game) return null;
 
   const rolesToAssign: string[] = [];
@@ -175,25 +195,38 @@ export function assignRolesToGame(gameId: string, selectedRoles: Record<string, 
   const playersToReceiveRoles = game.players.filter((player) => player.id !== game.hostToken);
   const shuffledPlayers = shuffleArray(playersToReceiveRoles);
 
-  const assignTx = db.transaction(() => {
-    clearPlayerRolesStmt.run(gameId);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Clear roles for non-hosts
+    await client.query('UPDATE players SET role_id = NULL WHERE game_id = $1 AND is_host = FALSE', [gameId]);
 
-    shuffledPlayers.forEach((player, index) => {
+    for (let index = 0; index < shuffledPlayers.length; index++) {
+      const player = shuffledPlayers[index];
       const roleId = shuffledRoles[index];
       if (roleId) {
-        updatePlayerRoleStmt.run(roleId, player.id);
+        await client.query('UPDATE players SET role_id = $1 WHERE id = $2', [roleId, player.id]);
       }
-    });
+    }
 
     const mergedSettings = {
       ...(game.settings || {}),
       selectedRoles,
     };
 
-    updateGameStatusStmt.run('playing', serializeSettings(mergedSettings), gameId);
-  });
+    await client.query('UPDATE games SET status = $1, settings_json = $2 WHERE id = $3', [
+      'playing',
+      serializeSettings(mergedSettings),
+      gameId,
+    ]);
 
-  assignTx();
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
-  return loadGameById(gameId) ?? null;
+  return (await loadGameById(gameId)) ?? null;
 }
