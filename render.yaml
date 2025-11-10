@@ -1,0 +1,19 @@
+# Render service configuration (example).
+# Copy this file to your repo to allow Render to detect and create the service via render.yaml
+# NOTE: Do NOT place secrets (DATABASE_URL) in this file. Configure them in the Render dashboard.
+
+services:
+  - type: web
+    name: backend-loup-garou
+    env: node
+    plan: free
+    repo: https://github.com/Emmanuelsakpleto/backend-loup-garou
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm run migrate && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # DATABASE_URL must be configured in the Render dashboard (do not commit it)
+      - key: DATABASE_URL
+        value: ""
