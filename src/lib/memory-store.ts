@@ -95,6 +95,27 @@ export async function assignRolesToGame(gameId: string, selectedRoles: Record<st
   return game;
 }
 
+export async function updatePlayersStatus(gameId: string, players: Player[]) {
+  const game = games.get(gameId);
+  if (!game) return null;
+
+  players.forEach(p => {
+    const player = game.players.find(gp => gp.id === p.id);
+    if (player) {
+      player.isAlive = p.isAlive !== false;
+    }
+  });
+
+  return game;
+}
+
+export async function removePlayer(gameId: string, playerId: string) {
+  const game = games.get(gameId);
+  if (!game) return null;
+  game.players = game.players.filter(p => p.id !== playerId);
+  return game;
+}
+
 // Nettoyage automatique des parties anciennes (> 24h)
 setInterval(() => {
   const now = Date.now();

@@ -48,20 +48,8 @@ router.post('/join-game', async (req, res) => {
   // Répondre immédiatement au client
   res.json({ playerId: result.player.id, gameId: result.game.id });
   
-  // Attendre un peu que le client rejoigne la room Socket.IO
-  setTimeout(() => {
-    const io = getIO();
-    if (io && result.player) {
-      console.log(`📢 Émission de player-joined vers game-${result.game.id}:`, {
-        playerId: result.player.id,
-        playerName: result.player.name,
-      });
-      io.to(`game-${result.game.id}`).emit('player-joined', {
-        playerId: result.player.id,
-        playerName: result.player.name,
-      });
-    }
-  }, 100); // Délai de 100ms pour laisser le client rejoindre la room
+  // Note: L'événement 'player-joined' est maintenant géré par le socket.on('join-room')
+  // pour plus de fiabilité une fois que le client est réellement dans la room.
 });
 
 router.get('/game/:id', async (req, res) => {

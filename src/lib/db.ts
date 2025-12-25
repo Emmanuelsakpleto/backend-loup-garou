@@ -30,6 +30,7 @@ export async function initDb() {
         name TEXT NOT NULL,
         role_id TEXT,
         is_host BOOLEAN NOT NULL DEFAULT FALSE,
+        is_alive BOOLEAN NOT NULL DEFAULT TRUE,
         created_at BIGINT NOT NULL,
         FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
       );

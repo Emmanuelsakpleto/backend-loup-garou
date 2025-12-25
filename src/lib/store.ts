@@ -17,6 +17,7 @@ type PlayerRow = {
   name: string;
   role_id: string | null;
   is_host: boolean;
+  is_alive: boolean;
   created_at: string | number;
 };
 
@@ -45,6 +46,7 @@ function mapPlayerRow(row: PlayerRow): Player {
     id: row.id,
     name: row.name,
     roleId: row.role_id ?? undefined,
+    isAlive: row.is_alive,
   };
 }
 
@@ -170,6 +172,16 @@ export async function getGameById(id: string) {
   return await loadGameById(id);
 }
 
+export async function removePlayer(gameId: string, playerId: string) {
+  const client = await pool.connect();
+  try {
+    await client.query('DELETE FROM players WHERE id = $1 AND game_id = $2', [playerId, gameId]);
+    return await loadGameById(gameId);
+  } finally {
+    client.release();
+  }
+}
+
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -229,4 +241,23 @@ export async function assignRolesToGame(gameId: string, selectedRoles: Record<st
   }
 
   return (await loadGameById(gameId)) ?? null;
+}
+
+export async function updatePlayersStatus(gameId: string, players: Player[]) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const player of players) {
+      await client.query(
+        'UPDATE players SET is_alive = $1 WHERE id = $2 AND game_id = $3',
+        [player.isAlive !== false, player.id, gameId]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
