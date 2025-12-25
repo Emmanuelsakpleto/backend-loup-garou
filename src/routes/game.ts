@@ -1,6 +1,13 @@
 import express from 'express';
-import { createGame, joinGameByCode, getGameById, assignRolesToGame } from '../lib/store';
 import { getIO } from '../socket';
+
+// Utiliser PostgreSQL si DATABASE_URL est défini, sinon memory-store
+const USE_POSTGRES = !!process.env.DATABASE_URL;
+const storeModule = USE_POSTGRES 
+  ? require('../lib/store')
+  : require('../lib/memory-store');
+
+const { createGame, joinGameByCode, getGameById, assignRolesToGame } = storeModule;
 
 const router = express.Router();
 
@@ -12,7 +19,8 @@ router.post('/create-game', async (req, res) => {
     return res.json({ gameId: game.id, code: game.code, hostToken });
   } catch (err) {
     console.error('create-game error', err);
-    return res.status(500).json({ error: 'failed to create game' });
+    // Expose minimal error details for debugging (remove or soften in production)
+    return res.status(500).json({ error: 'failed to create game', details: (err as Error).message });
   }
 });
 
