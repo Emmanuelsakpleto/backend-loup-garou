@@ -31,6 +31,12 @@ export function initSocket(server: HTTPServer) {
       // Notifier les autres joueurs qu'un nouveau socket est dans la room
       socket.to(`game-${gameId}`).emit('player-connected', { socketId: socket.id });
     });
+
+    // Handler pour synchroniser l'état du jeu (utilisé par le narrateur)
+    socket.on('sync-game-state', ({ gameId, gameState }) => {
+      console.log(`🔄 Synchronisation de l'état pour la room game-${gameId}`);
+      socket.to(`game-${gameId}`).emit('game-state-updated', gameState);
+    });
     
     socket.on('disconnect', () => {
       console.log('🔌 Client déconnecté:', socket.id);
