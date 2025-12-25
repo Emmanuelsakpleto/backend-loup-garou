@@ -20,7 +20,7 @@ export async function createGame(hostName: string, settings?: Record<string, any
     id,
     code,
     hostToken,
-    status: 'waiting',
+    status: 'lobby',
     settings: settings || {},
     players: [hostPlayer],
     createdAt: now,

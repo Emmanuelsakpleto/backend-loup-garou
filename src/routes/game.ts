@@ -1,5 +1,6 @@
 import express from 'express';
 import { getIO } from '../socket';
+import { Player } from '../types';
 
 // Utiliser PostgreSQL si DATABASE_URL est défini, sinon memory-store
 const USE_POSTGRES = !!process.env.DATABASE_URL;
@@ -93,12 +94,12 @@ router.post('/game/:id/assign-roles', async (req, res) => {
     // Émettre l'événement Socket.IO pour notifier tous les joueurs
     const io = getIO();
     if (io) {
-      updatedGame.players.forEach(player => {
+      updatedGame.players.forEach((player: Player) => {
         console.log(`  → ${player.name} (${player.id}): ${player.roleId || 'narrateur'}`);
       });
       
       io.to(`game-${id}`).emit('roles-assigned', {
-        players: updatedGame.players.map(p => ({
+        players: updatedGame.players.map((p: Player) => ({
           id: p.id,
           name: p.name,
           roleId: p.roleId,
